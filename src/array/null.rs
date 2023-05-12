@@ -89,6 +89,13 @@ impl Array for NullArray {
     fn with_validity(&self, _: Option<Bitmap>) -> Box<dyn Array> {
         panic!("cannot set validity of a null array")
     }
+
+    fn to_type(&self, data_type: DataType) -> Box<dyn Array> {
+        Box::new(Self {
+            data_type,
+            length: self.length,
+        })
+    }
 }
 
 #[derive(Debug)]

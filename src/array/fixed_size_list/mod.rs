@@ -220,4 +220,13 @@ impl Array for FixedSizeListArray {
     fn with_validity(&self, validity: Option<Bitmap>) -> Box<dyn Array> {
         Box::new(self.clone().with_validity(validity))
     }
+
+    fn to_type(&self, data_type: DataType) -> Box<dyn Array> {
+        Box::new(Self {
+            data_type,
+            size: self.size,
+            values: self.values.clone(),
+            validity: self.validity.clone(),
+        })
+    }
 }

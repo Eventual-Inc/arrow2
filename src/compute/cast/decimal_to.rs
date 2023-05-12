@@ -29,6 +29,10 @@ fn decimal_to_decimal_impl<F: Fn(i128) -> Option<i128>>(
     });
     PrimitiveArray::<i128>::from_trusted_len_iter(values)
         .to(DataType::Decimal(to_precision, to_scale))
+        .as_any()
+        .downcast_ref::<PrimitiveArray<i128>>()
+        .unwrap()
+        .clone()
 }
 
 /// Returns a [`PrimitiveArray<i128>`] with the casted values. Values are `None` on overflow
@@ -46,7 +50,13 @@ pub fn decimal_to_decimal(
 
     if to_scale == from_scale && to_precision >= from_precision {
         // fast path
-        return from.clone().to(DataType::Decimal(to_precision, to_scale));
+        return from
+            .clone()
+            .to(DataType::Decimal(to_precision, to_scale))
+            .as_any()
+            .downcast_ref::<PrimitiveArray<i128>>()
+            .unwrap()
+            .clone();
     }
     // todo: other fast paths include increasing scale and precision by so that
     // a number will never overflow (validity is preserved)

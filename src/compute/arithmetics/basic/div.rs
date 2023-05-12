@@ -45,7 +45,12 @@ where
             _ => None,
         });
 
-        PrimitiveArray::from_trusted_len_iter(values).to(lhs.data_type().clone())
+        PrimitiveArray::from_trusted_len_iter(values)
+            .to(lhs.data_type().clone())
+            .as_any()
+            .downcast_ref::<PrimitiveArray<T>>()
+            .unwrap()
+            .clone()
     }
 }
 
