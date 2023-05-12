@@ -68,7 +68,12 @@ where
         .iter()
         .map(|x| x.and_then::<T, _>(|x| lexical_core::parse_partial(x).ok().map(|x| x.0)));
 
-    PrimitiveArray::<T>::from_trusted_len_iter(iter).to(to.clone())
+    PrimitiveArray::<T>::from_trusted_len_iter(iter)
+        .to(to.clone())
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .unwrap()
+        .clone()
 }
 
 /// Casts a [`BinaryArray`] to a [`PrimitiveArray`], making any uncastable value a Null.
@@ -80,7 +85,12 @@ where
         .iter()
         .map(|x| x.and_then::<T, _>(|x| lexical_core::parse(x).ok()));
 
-    PrimitiveArray::<T>::from_trusted_len_iter(iter).to(to.clone())
+    PrimitiveArray::<T>::from_trusted_len_iter(iter)
+        .to(to.clone())
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .unwrap()
+        .clone()
 }
 
 pub(super) fn binary_to_primitive_dyn<O: Offset, T>(

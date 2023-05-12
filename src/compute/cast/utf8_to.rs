@@ -25,7 +25,12 @@ where
         .iter()
         .map(|x| x.and_then::<T, _>(|x| lexical_core::parse(x.as_bytes()).ok()));
 
-    PrimitiveArray::<T>::from_trusted_len_iter(iter).to(to.clone())
+    PrimitiveArray::<T>::from_trusted_len_iter(iter)
+        .to(to.clone())
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .unwrap()
+        .clone()
 }
 
 /// Casts a [`Utf8Array`] to a [`PrimitiveArray`] at best-effort using `lexical_core::parse_partial`, making any uncastable value as zero.
@@ -40,7 +45,12 @@ where
         x.and_then::<T, _>(|x| lexical_core::parse_partial(x.as_bytes()).ok().map(|x| x.0))
     });
 
-    PrimitiveArray::<T>::from_trusted_len_iter(iter).to(to.clone())
+    PrimitiveArray::<T>::from_trusted_len_iter(iter)
+        .to(to.clone())
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .unwrap()
+        .clone()
 }
 
 pub(super) fn utf8_to_primitive_dyn<O: Offset, T>(
@@ -68,7 +78,12 @@ pub fn utf8_to_date32<O: Offset>(from: &Utf8Array<O>) -> PrimitiveArray<i32> {
                 .map(|x| x.num_days_from_ce() - EPOCH_DAYS_FROM_CE)
         })
     });
-    PrimitiveArray::<i32>::from_trusted_len_iter(iter).to(DataType::Date32)
+    PrimitiveArray::<i32>::from_trusted_len_iter(iter)
+        .to(DataType::Date32)
+        .as_any()
+        .downcast_ref::<PrimitiveArray<i32>>()
+        .unwrap()
+        .clone()
 }
 
 pub(super) fn utf8_to_date32_dyn<O: Offset>(from: &dyn Array) -> Result<Box<dyn Array>> {
@@ -85,7 +100,12 @@ pub fn utf8_to_date64<O: Offset>(from: &Utf8Array<O>) -> PrimitiveArray<i64> {
                 .map(|x| (x.num_days_from_ce() - EPOCH_DAYS_FROM_CE) as i64 * 86400000)
         })
     });
-    PrimitiveArray::from_trusted_len_iter(iter).to(DataType::Date64)
+    PrimitiveArray::from_trusted_len_iter(iter)
+        .to(DataType::Date64)
+        .as_any()
+        .downcast_ref::<PrimitiveArray<i64>>()
+        .unwrap()
+        .clone()
 }
 
 pub(super) fn utf8_to_date64_dyn<O: Offset>(from: &dyn Array) -> Result<Box<dyn Array>> {

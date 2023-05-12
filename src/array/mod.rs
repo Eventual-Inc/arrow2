@@ -133,6 +133,37 @@ pub trait Array: Send + Sync + dyn_clone::DynClone + 'static {
 
     /// Clone a `&dyn Array` to an owned `Box<dyn Array>`.
     fn to_boxed(&self) -> Box<dyn Array>;
+
+    /// Returns a new [`Array`] with a different logical type.
+    ///
+    /// This function is useful to assign a different [`DataType`] to the array.
+    /// Used to change the arrays' logical type (see example).
+    /// # Example
+    /// ```
+    /// use arrow2::array::Int32Array;
+    /// use arrow2::datatypes::DataType;
+    ///
+    /// let array = Int32Array::from(&[Some(1), None, Some(2)]).to(DataType::Date32);
+    /// assert_eq!(
+    ///    format!("{:?}", array),
+    ///    "Date32[1970-01-02, None, 1970-01-03]"
+    /// );
+    /// ```
+    /// # Panics
+    /// Panics iff the `data_type`'s [`PhysicalType`] is not equal to array's `PhysicalType`.
+    fn to(&self, data_type: DataType) -> Box<dyn Array> {
+        if data_type.to_physical_type() != self.data_type().to_physical_type() {
+            panic!(
+                "Physical types of arrays do not match: {:?}, {:?}",
+                data_type.to_physical_type(),
+                self.data_type().to_physical_type()
+            );
+        }
+        self.to_type(data_type)
+    }
+
+    /// Returns a new [`Array`] with a different logical type.
+    fn to_type(&self, data_type: DataType) -> Box<dyn Array>;
 }
 
 dyn_clone::clone_trait_object!(Array);

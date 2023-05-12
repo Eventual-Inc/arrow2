@@ -203,4 +203,13 @@ impl Array for MapArray {
     fn with_validity(&self, validity: Option<Bitmap>) -> Box<dyn Array> {
         Box::new(self.clone().with_validity(validity))
     }
+
+    fn to_type(&self, data_type: DataType) -> Box<dyn Array> {
+        Box::new(Self {
+            data_type,
+            field: self.field.clone(),
+            offsets: self.offsets.clone(),
+            validity: self.validity.clone(),
+        })
+    }
 }

@@ -96,39 +96,6 @@ impl<T: NativeType> PrimitiveArray<T> {
         })
     }
 
-    /// Returns a new [`PrimitiveArray`] with a different logical type.
-    ///
-    /// This function is useful to assign a different [`DataType`] to the array.
-    /// Used to change the arrays' logical type (see example).
-    /// # Example
-    /// ```
-    /// use arrow2::array::Int32Array;
-    /// use arrow2::datatypes::DataType;
-    ///
-    /// let array = Int32Array::from(&[Some(1), None, Some(2)]).to(DataType::Date32);
-    /// assert_eq!(
-    ///    format!("{:?}", array),
-    ///    "Date32[1970-01-02, None, 1970-01-03]"
-    /// );
-    /// ```
-    /// # Panics
-    /// Panics iff the `data_type`'s [`PhysicalType`] is not equal to [`PhysicalType::Primitive(T::PRIMITIVE)`]
-    #[inline]
-    #[must_use]
-    pub fn to(self, data_type: DataType) -> Self {
-        check(
-            &data_type,
-            &self.values,
-            self.validity.as_ref().map(|v| v.len()),
-        )
-        .unwrap();
-        Self {
-            data_type,
-            values: self.values,
-            validity: self.validity,
-        }
-    }
-
     /// Creates a (non-null) [`PrimitiveArray`] from a vector of values.
     /// This function is `O(1)`.
     /// # Examples
@@ -406,6 +373,22 @@ impl<T: NativeType> PrimitiveArray<T> {
 
 impl<T: NativeType> Array for PrimitiveArray<T> {
     impl_common_array!();
+
+    #[inline]
+    #[must_use]
+    fn to_type(&self, data_type: DataType) -> Box<dyn Array> {
+        check(
+            &data_type,
+            &self.values,
+            self.validity.as_ref().map(|v| v.len()),
+        )
+        .unwrap();
+        Box::new(Self {
+            data_type,
+            values: self.values.clone(),
+            validity: self.validity.clone(),
+        })
+    }
 
     fn validity(&self) -> Option<&Bitmap> {
         self.validity.as_ref()
