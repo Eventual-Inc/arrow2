@@ -237,6 +237,7 @@ impl<O: Offset> Utf8Array<O> {
     }
 
     impl_sliced!();
+    impl_to!();
     impl_mut_validity!();
     impl_into_array!();
 
@@ -513,15 +514,6 @@ impl<O: Offset> Array for Utf8Array<O> {
     #[inline]
     fn with_validity(&self, validity: Option<Bitmap>) -> Box<dyn Array> {
         Box::new(self.clone().with_validity(validity))
-    }
-
-    fn to_type(&self, data_type: DataType) -> Box<dyn Array> {
-        Box::new(Self {
-            data_type,
-            offsets: self.offsets.clone(),
-            values: self.values.clone(),
-            validity: self.validity.clone(),
-        })
     }
 }
 
