@@ -255,6 +255,7 @@ impl UnionArray {
     }
 
     impl_sliced!();
+    impl_to!();
     impl_into_array!();
 }
 
@@ -345,17 +346,6 @@ impl Array for UnionArray {
 
     fn with_validity(&self, _: Option<Bitmap>) -> Box<dyn Array> {
         panic!("cannot set validity of a union array")
-    }
-
-    fn to_type(&self, data_type: DataType) -> Box<dyn Array> {
-        Box::new(Self {
-            data_type,
-            types: self.types.clone(),
-            map: self.map,
-            fields: self.fields.clone(),
-            offsets: self.offsets.clone(),
-            offset: self.offset,
-        })
     }
 }
 

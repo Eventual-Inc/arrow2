@@ -5,7 +5,7 @@ use chrono::{
     Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime,
 };
 
-use crate::{array::Array, error::Result};
+use crate::error::Result;
 use crate::{
     array::{PrimitiveArray, Utf8Array},
     error::Error,
@@ -407,10 +407,6 @@ fn utf8_to_timestamp_ns_impl<O: Offset, T: chrono::TimeZone>(
 
     PrimitiveArray::from_trusted_len_iter(iter)
         .to(DataType::Timestamp(TimeUnit::Nanosecond, Some(timezone)))
-        .as_any()
-        .downcast_ref::<PrimitiveArray<i64>>()
-        .unwrap()
-        .clone()
 }
 
 /// Parses `value` to a [`chrono_tz::Tz`] with the Arrow's definition of timestamp with a timezone.
@@ -478,12 +474,7 @@ pub fn utf8_to_naive_timestamp_ns<O: Offset>(
         .iter()
         .map(|x| x.and_then(|x| utf8_to_naive_timestamp_ns_scalar(x, fmt)));
 
-    PrimitiveArray::from_trusted_len_iter(iter)
-        .to(DataType::Timestamp(TimeUnit::Nanosecond, None))
-        .as_any()
-        .downcast_ref::<PrimitiveArray<i64>>()
-        .unwrap()
-        .clone()
+    PrimitiveArray::from_trusted_len_iter(iter).to(DataType::Timestamp(TimeUnit::Nanosecond, None))
 }
 
 fn add_month(year: i32, month: u32, months: i32) -> chrono::NaiveDate {
