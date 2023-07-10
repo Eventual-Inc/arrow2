@@ -15,7 +15,10 @@ pub use primitive_to::*;
 pub use utf8_to::*;
 
 use crate::{
-    array::*,
+    array::{
+        growable::{Growable, GrowableFixedSizeList},
+        *,
+    },
     datatypes::*,
     error::{Error, Result},
     offset::{Offset, Offsets},
@@ -81,10 +84,21 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
 
     match (from_type, to_type) {
         (Null, _) | (_, Null) => true,
-        // TODO(Clark): Add new conditions for extension types, structs, and lists.
+        (Struct(from_fields), Struct(to_fields)) if from_fields.len() == to_fields.len() => {
+            from_fields
+                .iter()
+                .zip(to_fields.iter())
+                .map(|(f, t)| f.name == t.name && can_cast_types(&f.data_type, &t.data_type))
+                .all(std::convert::identity)
+        }
         (Struct(_), _) => false,
         (_, Struct(_)) => false,
         (FixedSizeList(list_from, _), List(list_to)) => {
+            can_cast_types(&list_from.data_type, &list_to.data_type)
+        }
+        (FixedSizeList(list_from, size_from), FixedSizeList(list_to, size_to))
+            if size_from == size_to =>
+        {
             can_cast_types(&list_from.data_type, &list_to.data_type)
         }
         (List(list_from), FixedSizeList(list_to, _)) => {
@@ -98,6 +112,9 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         }
         (List(list_from), LargeList(list_to)) if list_from == list_to => true,
         (LargeList(list_from), List(list_to)) if list_from == list_to => true,
+        (LargeList(list_from), FixedSizeList(list_to, _)) => {
+            can_cast_types(&list_from.data_type, &list_to.data_type)
+        }
         (_, List(list_to)) => can_cast_types(from_type, &list_to.data_type),
         (Dictionary(_, from_value_type, _), Dictionary(_, to_value_type, _)) => {
             can_cast_types(from_value_type, to_value_type)
@@ -404,30 +421,71 @@ fn cast_fixed_size_list_to_list(
     ))
 }
 
-fn cast_list_to_fixed_size_list(
-    list: &ListArray<i32>,
+fn cast_list_to_fixed_size_list<O>(
+    list: &ListArray<O>,
     inner: &Field,
     size: usize,
     options: CastOptions,
-) -> Result<FixedSizeListArray> {
-    let offsets = list.offsets().buffer().iter();
-    let expected = (0..list.len()).map(|ix| (ix * size) as i32);
-
-    match offsets
-        .zip(expected)
-        .find(|(actual, expected)| *actual != expected)
+) -> Result<FixedSizeListArray>
+where
+    O: Offset + std::convert::TryFrom<usize>,
+    <O as TryFrom<usize>>::Error: std::fmt::Debug,
+{
+    if list
+        .validity()
+        .map_or(true, |bitmap| bitmap.iter().all(|v| v))
     {
-        Some(_) => Err(Error::NotYetImplemented(
-            "incompatible offsets in source list".to_string(),
-        )),
-        None => {
-            let new_values = cast(list.values().as_ref(), inner.data_type(), options)?;
-            Ok(FixedSizeListArray::new(
-                DataType::FixedSizeList(Box::new(inner.clone()), size),
-                new_values,
-                list.validity().cloned(),
-            ))
+        let offsets = list.offsets().buffer().iter();
+        let expected = (0..list.len()).map(|ix| O::try_from(ix * size).unwrap());
+        match offsets
+            .zip(expected)
+            .find(|(actual, expected)| *actual != expected)
+        {
+            Some(_) => Err(Error::NotYetImplemented(
+                "incompatible offsets in source list".to_string(),
+            )),
+            None => {
+                let new_values = cast(list.values().as_ref(), inner.data_type(), options)?;
+                Ok(FixedSizeListArray::new(
+                    DataType::FixedSizeList(Box::new(inner.clone()), size),
+                    new_values,
+                    list.validity().cloned(),
+                ))
+            }
         }
+    } else {
+        let arrs = list
+            .iter()
+            .map(|arr| match arr {
+                Some(arr) => {
+                    if arr.len() != size {
+                        return Err(Error::NotYetImplemented(
+                            "incompatible offsets in source list".to_string(),
+                        ));
+                    }
+                    Ok(FixedSizeListArray::new(
+                        DataType::FixedSizeList(Box::new(inner.clone()), size),
+                        arr,
+                        None,
+                    ))
+                }
+                None => Ok(FixedSizeListArray::new_null(
+                    DataType::FixedSizeList(Box::new(inner.clone()), size),
+                    1,
+                )),
+            })
+            .collect::<Result<Vec<FixedSizeListArray>>>()?;
+        let mut growable_array =
+            GrowableFixedSizeList::new(arrs.iter().collect(), true, list.len());
+        for i in 0..list.len() {
+            growable_array.extend(i, 0, 1);
+        }
+        Ok(growable_array
+            .as_box()
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .unwrap()
+            .clone())
     }
 }
 
@@ -494,7 +552,14 @@ pub fn cast(array: &dyn Array, to_type: &DataType, options: CastOptions) -> Resu
         (FixedSizeList(_, from_size), FixedSizeList(_, to_size)) if from_size == to_size => {
             cast_fixed_size_list(array.as_any().downcast_ref::<FixedSizeListArray>().unwrap(), to_type, options).map(|x| x.boxed())
         }
-        (List(_), FixedSizeList(inner, size)) => cast_list_to_fixed_size_list(
+        (List(_), FixedSizeList(inner, size)) => cast_list_to_fixed_size_list::<i32>(
+            array.as_any().downcast_ref().unwrap(),
+            inner.as_ref(),
+            *size,
+            options,
+        )
+        .map(|x| x.boxed()),
+        (LargeList(_), FixedSizeList(inner, size)) => cast_list_to_fixed_size_list::<i64>(
             array.as_any().downcast_ref().unwrap(),
             inner.as_ref(),
             *size,
