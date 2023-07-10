@@ -15,7 +15,10 @@ pub use primitive_to::*;
 pub use utf8_to::*;
 
 use crate::{
-    array::*,
+    array::{
+        growable::{Growable, GrowableFixedSizeList},
+        *,
+    },
     datatypes::*,
     error::{Error, Result},
     offset::{Offset, Offsets},
@@ -81,13 +84,24 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
 
     match (from_type, to_type) {
         (Null, _) | (_, Null) => true,
-        // TODO(Clark): Add new conditions for extension types, structs, and lists.
+        (Struct(from_fields), Struct(to_fields)) if from_fields.len() == to_fields.len() => {
+            from_fields
+                .iter()
+                .zip(to_fields.iter())
+                .map(|(f, t)| f.name == t.name && can_cast_types(&f.data_type, &t.data_type))
+                .all(std::convert::identity)
+        }
         (Struct(_), _) => false,
         (_, Struct(_)) => false,
         (FixedSizeList(list_from, _), List(list_to)) => {
             can_cast_types(&list_from.data_type, &list_to.data_type)
         }
         (FixedSizeList(list_from, _), LargeList(list_to)) => {
+            can_cast_types(&list_from.data_type, &list_to.data_type)
+        }
+        (FixedSizeList(list_from, size_from), FixedSizeList(list_to, size_to))
+            if size_from == size_to =>
+        {
             can_cast_types(&list_from.data_type, &list_to.data_type)
         }
         (List(list_from), FixedSizeList(list_to, _)) => {
@@ -104,6 +118,9 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         }
         (List(list_from), LargeList(list_to)) if list_from == list_to => true,
         (LargeList(list_from), List(list_to)) if list_from == list_to => true,
+        (LargeList(list_from), FixedSizeList(list_to, _)) => {
+            can_cast_types(&list_from.data_type, &list_to.data_type)
+        }
         (_, List(list_to)) => can_cast_types(from_type, &list_to.data_type),
         (_, LargeList(list_to)) if from_type != &LargeBinary => {
             can_cast_types(from_type, &list_to.data_type)
