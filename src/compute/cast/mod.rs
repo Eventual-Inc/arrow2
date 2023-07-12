@@ -121,6 +121,9 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         (LargeList(list_from), FixedSizeList(list_to, _)) => {
             can_cast_types(&list_from.data_type, &list_to.data_type)
         }
+        (FixedSizeList(list_from, _), LargeList(list_to)) => {
+            can_cast_types(&list_from.data_type, &list_to.data_type)
+        }
         (_, List(list_to)) => can_cast_types(from_type, &list_to.data_type),
         (_, LargeList(list_to)) if from_type != &LargeBinary => {
             can_cast_types(from_type, &list_to.data_type)
