@@ -115,6 +115,9 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         (LargeList(list_from), FixedSizeList(list_to, _)) => {
             can_cast_types(&list_from.data_type, &list_to.data_type)
         }
+        (FixedSizeList(list_from, _), LargeList(list_to)) => {
+            can_cast_types(&list_from.data_type, &list_to.data_type)
+        }
         (_, List(list_to)) => can_cast_types(from_type, &list_to.data_type),
         (Dictionary(_, from_value_type, _), Dictionary(_, to_value_type, _)) => {
             can_cast_types(from_value_type, to_value_type)
@@ -396,24 +399,28 @@ fn cast_large_to_list(
     ))
 }
 
-fn cast_fixed_size_list_to_list(
+fn cast_fixed_size_list_to_list<O>(
     fixed: &FixedSizeListArray,
     to_type: &DataType,
     options: CastOptions,
-) -> Result<ListArray<i32>> {
+) -> Result<ListArray<O>>
+where
+    O: Offset + std::convert::TryFrom<usize>,
+    <O as TryFrom<usize>>::Error: std::fmt::Debug,
+{
     let new_values = cast(
         fixed.values().as_ref(),
-        ListArray::<i32>::get_child_type(to_type),
+        ListArray::<O>::get_child_type(to_type),
         options,
     )?;
 
     let offsets = (0..=fixed.len())
-        .map(|ix| (ix * fixed.size()) as i32)
+        .map(|ix| O::try_from(ix * fixed.size()).unwrap())
         .collect::<Vec<_>>();
     // Safety: offsets _are_ monotonically increasing
     let offsets = unsafe { Offsets::new_unchecked(offsets) };
 
-    Ok(ListArray::<i32>::new(
+    Ok(ListArray::<O>::new(
         to_type.clone(),
         offsets.into(),
         new_values,
@@ -567,7 +574,11 @@ pub fn cast(array: &dyn Array, to_type: &DataType, options: CastOptions) -> Resu
         )
         .map(|x| x.boxed()),
         (FixedSizeList(_, _), List(_)) => {
-            cast_fixed_size_list_to_list(array.as_any().downcast_ref().unwrap(), to_type, options)
+            cast_fixed_size_list_to_list::<i32>(array.as_any().downcast_ref().unwrap(), to_type, options)
+                .map(|x| x.boxed())
+        }
+        (FixedSizeList(_, _), LargeList(_)) => {
+            cast_fixed_size_list_to_list::<i64>(array.as_any().downcast_ref().unwrap(), to_type, options)
                 .map(|x| x.boxed())
         }
         (List(_), List(_)) => {
