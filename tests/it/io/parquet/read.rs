@@ -2,6 +2,7 @@ use std::fs::File;
 
 use arrow2::array::*;
 use arrow2::error::*;
+use arrow2::io::parquet::read::schema::apply_schema_to_fields;
 use arrow2::io::parquet::read::*;
 
 use super::*;
@@ -919,5 +920,224 @@ fn read_int96_timestamps() -> Result<()> {
     std::panic::catch_unwind(|| parse(arrow2::datatypes::TimeUnit::Nanosecond))
         .expect_err("Should be a panic error");
 
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_large_strings() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new("foo_arrow", DataType::LargeUtf8, true)],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new("foo_parquet", DataType::Utf8, true)];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    assert_eq!(new_field.data_type(), &DataType::LargeUtf8);
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_large_binary() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new("foo_arrow", DataType::LargeBinary, true)],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new("foo_parquet", DataType::Binary, true)];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    assert_eq!(new_field.data_type(), &DataType::LargeBinary);
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_duration() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new(
+            "foo_arrow",
+            DataType::Duration(TimeUnit::Millisecond),
+            true,
+        )],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new("foo_parquet", DataType::Int64, true)];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    assert_eq!(
+        new_field.data_type(),
+        &DataType::Duration(TimeUnit::Millisecond)
+    );
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_decimal_256() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new("foo_arrow", DataType::Decimal256(8, 8), true)],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new("foo_parquet", DataType::Decimal(8, 8), true)];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    assert_eq!(new_field.data_type(), &DataType::Decimal256(8, 8));
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_timestamp_timezone() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new(
+            "foo_arrow",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("GMT+8".to_string())),
+            true,
+        )],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new(
+        "foo_parquet",
+        DataType::Timestamp(TimeUnit::Millisecond, None),
+        true,
+    )];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    // NOTE: We keep the TimeUnit from the inferred field, and only apply Timezone information
+    assert_eq!(
+        new_field.data_type(),
+        &DataType::Timestamp(TimeUnit::Millisecond, Some("GMT+8".to_string()))
+    );
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_extension() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new(
+            "foo_arrow",
+            DataType::Extension(
+                "my_extension".to_string(),
+                // NOTE: We use LargeList as the storage type, but List as the inferred type
+                // to test for recursive application of the schema
+                Box::new(DataType::LargeList(Box::new(Field::new(
+                    "item",
+                    DataType::Int64,
+                    false,
+                )))),
+                None,
+            ),
+            true,
+        )],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new(
+        "foo_parquet",
+        // Use List as inferred type
+        DataType::List(Box::new(Field::new("item", DataType::Int64, false))),
+        true,
+    )];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    assert_eq!(
+        new_field.data_type(),
+        &DataType::Extension(
+            "my_extension".to_string(),
+            Box::new(DataType::LargeList(Box::new(Field::new(
+                "item",
+                DataType::Int64,
+                false
+            )))),
+            None
+        )
+    );
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_extension_bad_storage_type() -> Result<()> {
+    let arrow_schema = Schema {
+        fields: vec![Field::new(
+            "foo_arrow",
+            DataType::Extension(
+                "my_extension".to_string(),
+                // NOTE: bad storage type (Utf8) that doesn't match inferred type (Int64)
+                Box::new(DataType::Utf8),
+                None,
+            ),
+            true,
+        )],
+        metadata: std::default::Default::default(),
+    };
+    let inferred_fields = vec![Field::new("foo_parquet", DataType::Int64, true)];
+
+    let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+    assert_eq!(new_fields.len(), 1);
+    let new_field = &new_fields[0];
+    assert_eq!(
+        new_field.data_type(),
+        // Extension type was not applied, because the Extension's storage type did not match the inferred type
+        &DataType::Int64,
+    );
+    assert_eq!(new_field.name.as_str(), "foo_parquet");
+    Ok(())
+}
+
+#[test]
+fn test_apply_schema_recursive_application() -> Result<()> {
+    let nested_origin_field = Field::new("item_arrow", DataType::LargeUtf8, true);
+    let nested_inferred_field = Field::new("item_arrow", DataType::LargeUtf8, true);
+    for (origin_type, inferred_type) in vec![
+        (
+            DataType::LargeList(Box::new(nested_origin_field.clone())),
+            DataType::List(Box::new(nested_inferred_field.clone())),
+        ),
+        (
+            DataType::FixedSizeList(Box::new(nested_origin_field.clone()), 2),
+            DataType::List(Box::new(nested_inferred_field.clone())),
+        ),
+        (
+            DataType::List(Box::new(nested_origin_field.clone())),
+            DataType::List(Box::new(nested_inferred_field.clone())),
+        ),
+        (
+            DataType::Struct(vec![nested_origin_field.clone()]),
+            DataType::Struct(vec![nested_inferred_field.clone()]),
+        ),
+    ] {
+        let arrow_schema = Schema {
+            fields: vec![Field::new("foo_arrow", origin_type.clone(), true)],
+            metadata: std::default::Default::default(),
+        };
+        let inferred_fields = vec![Field::new("foo_parquet", inferred_type, true)];
+
+        let new_fields = apply_schema_to_fields(&arrow_schema, &inferred_fields);
+
+        assert_eq!(new_fields.len(), 1);
+        let new_field = &new_fields[0];
+        assert_eq!(new_field.data_type(), &origin_type,);
+        assert_eq!(new_field.name.as_str(), "foo_parquet");
+    }
     Ok(())
 }

@@ -1,4 +1,6 @@
 //! APIs to handle Parquet <-> Arrow schemas.
+use std::borrow::Cow;
+
 use crate::datatypes::{Schema, TimeUnit};
 use crate::error::Result;
 
@@ -6,7 +8,7 @@ mod convert;
 mod metadata;
 
 pub use convert::parquet_to_arrow_schema_with_options;
-pub use metadata::read_schema_from_metadata;
+pub use metadata::{apply_schema_to_fields, read_schema_from_metadata};
 pub use parquet2::metadata::{FileMetaData, KeyValue, SchemaDescriptor};
 pub use parquet2::schema::types::ParquetType;
 
@@ -50,10 +52,17 @@ pub fn infer_schema_with_options(
     options: &Option<SchemaInferenceOptions>,
 ) -> Result<Schema> {
     let mut metadata = parse_key_value_metadata(file_metadata.key_value_metadata());
+    let fields = parquet_to_arrow_schema_with_options(file_metadata.schema().fields(), options);
 
+    // Use arrow schema from metadata to apply Arrow-specific transformations on the inferred fields
     let schema = read_schema_from_metadata(&mut metadata)?;
-    Ok(schema.unwrap_or_else(|| {
-        let fields = parquet_to_arrow_schema_with_options(file_metadata.schema().fields(), options);
-        Schema { fields, metadata }
-    }))
+    let transformed_fields = match schema {
+        None => fields,
+        Some(schema) => apply_schema_to_fields(&schema, &fields),
+    };
+
+    Ok(Schema {
+        fields: transformed_fields,
+        metadata,
+    })
 }

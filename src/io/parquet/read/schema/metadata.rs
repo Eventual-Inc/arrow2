@@ -1,7 +1,10 @@
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+
 use base64::{engine::general_purpose, Engine as _};
 pub use parquet2::metadata::KeyValue;
 
-use crate::datatypes::{Metadata, Schema};
+use crate::datatypes::{DataType, Field, Metadata, Schema};
 use crate::error::{Error, Result};
 use crate::io::ipc::read::deserialize_schema;
 
@@ -52,4 +55,102 @@ pub(super) fn parse_key_value_metadata(key_value_metadata: &Option<Vec<KeyValue>
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Applies a supplied `origin_field` to the `inferred_field` which was inferred from Parquet schema
+///
+/// This logic is adapted from a similar function in arrow-cpp
+/// See: `ApplyOriginalMetadata` in https://github.com/apache/arrow/blob/main/cpp/src/parquet/arrow/schema.cc#L976C14-L999
+fn apply_original_metadata<'a>(origin_field: &Field, inferred_field: &Field) -> Field {
+    let new_field = match (origin_field.data_type(), inferred_field.data_type()) {
+        // Wrap inferred field into an Extension type
+        (DataType::Extension(_, storage_dtype, _), inferred_dtype) => {
+            // Recursively apply the origin_field (coerced into its storage type) to the inferred_field
+            let origin_storage_field = Field::new(
+                origin_field.name.clone(),
+                storage_dtype.as_ref().clone(),
+                origin_field.is_nullable,
+            );
+            let recursively_applied_field = apply_original_metadata(&origin_storage_field, inferred_field);
+
+            // Only return the Extension type field if the recursively applied field matches the Extension's storage type
+            if recursively_applied_field.data_type() == storage_dtype.as_ref() {
+                Field::new(
+                    recursively_applied_field.name.clone(),
+                    origin_field.data_type().clone(),
+                    recursively_applied_field.is_nullable,
+                )
+            } else {
+                recursively_applied_field
+            }
+        },
+
+        // Apply timestamp timezones, but use the inferred TimeUnit since that is more consistent with the user's intended read behavior
+        (DataType::Timestamp(_, tz), DataType::Timestamp(tu, None)) => {
+            Field::new(
+                inferred_field.name.clone(),
+                DataType::Timestamp(tu.clone(), tz.clone()),
+                inferred_field.is_nullable,
+            )
+        }
+
+        // Apply DataType::Duration on Int64 fields
+        (DataType::Duration(_), DataType::Int64) |
+        // Apply "large" arrow dtypes on their "small" variants
+        (DataType::LargeUtf8, DataType::Utf8) |
+        (DataType::LargeBinary, DataType::Binary) |
+        (DataType::Decimal256(..), DataType::Decimal(..)) => Field::new(
+            inferred_field.name.clone(),
+            origin_field.data_type().clone(),
+            inferred_field.is_nullable,
+        ),
+
+        // If DataTypes are recursive, apply to the children
+        (DataType::List(origin_subfield), DataType::List(inferred_subfield)) => Field::new(
+            inferred_field.name.clone(),
+            DataType::List(Box::new(apply_original_metadata(origin_subfield, inferred_subfield.as_ref()))),
+            inferred_field.is_nullable,
+        ),
+        (DataType::LargeList(origin_subfield), DataType::List(inferred_subfield)) => Field::new(
+            inferred_field.name.clone(),
+            DataType::LargeList(Box::new(apply_original_metadata(origin_subfield, inferred_subfield.as_ref()))),
+            inferred_field.is_nullable,
+        ),
+        (DataType::FixedSizeList(origin_subfield, size), DataType::List(inferred_subfield)) => Field::new(
+            inferred_field.name.clone(),
+            DataType::FixedSizeList(Box::new(apply_original_metadata(origin_subfield, inferred_subfield.as_ref())), *size),
+            inferred_field.is_nullable,
+        ),
+        (DataType::Struct(origin_subfields), DataType::Struct(inferred_subfields)) => {
+            Field::new(
+                inferred_field.name.clone(),
+                DataType::Struct(origin_subfields.iter().zip(inferred_subfields.iter()).map(|(o, i)| apply_original_metadata(o, i)).collect::<Vec<_>>()),
+                inferred_field.is_nullable,
+            )
+        },
+
+        // No matches indicate that the inferred field is consistent with the arrow_schema and doesn't require modifications
+        _ => inferred_field.clone(),
+    };
+
+    // Apply metadata (preferentially from the inferred field in the case of key conflicts)
+    let mut new_metadata = BTreeMap::new();
+    for (k, v) in origin_field.metadata.iter() {
+        new_metadata.insert(k.clone(), v.clone());
+    }
+    for (k, v) in inferred_field.metadata.iter() {
+        new_metadata.insert(k.clone(), v.clone());
+    }
+
+    new_field.with_metadata(new_metadata)
+}
+
+/// Apply an Arrow schema on inferred fields
+pub fn apply_schema_to_fields<'a>(schema: &Schema, fields: &Vec<Field>) -> Vec<Field> {
+    schema
+        .fields
+        .iter()
+        .zip(fields.iter())
+        .map(|(origin_field, inferred_field)| apply_original_metadata(origin_field, inferred_field))
+        .collect::<Vec<_>>()
 }
