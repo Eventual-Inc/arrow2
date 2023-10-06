@@ -3,6 +3,10 @@ use ahash::AHashSet;
 
 pub(super) const RFC3339: &str = "%Y-%m-%dT%H:%M:%S%.f%:z";
 
+fn is_null(bytes: &[u8]) -> bool {
+    bytes.is_empty()
+}
+
 fn is_boolean(bytes: &[u8]) -> bool {
     bytes.eq_ignore_ascii_case(b"true") | bytes.eq_ignore_ascii_case(b"false")
 }
@@ -43,6 +47,7 @@ fn is_datetime(string: &str) -> Option<String> {
 
 /// Infers [`DataType`] from `bytes`
 /// # Implementation
+/// * empty slice to [`DataType::Null`]
 /// * case insensitive "true" or "false" are mapped to [`DataType::Boolean`]
 /// * parsable to integer is mapped to [`DataType::Int64`]
 /// * parsable to float is mapped to [`DataType::Float64`]
@@ -53,7 +58,9 @@ fn is_datetime(string: &str) -> Option<String> {
 /// * other utf8 is mapped to [`DataType::Utf8`]
 /// * invalid utf8 is mapped to [`DataType::Binary`]
 pub fn infer(bytes: &[u8]) -> DataType {
-    if is_boolean(bytes) {
+    if is_null(bytes) {
+        DataType::Null
+    } else if is_boolean(bytes) {
         DataType::Boolean
     } else if is_integer(bytes) {
         DataType::Int64
@@ -78,6 +85,10 @@ pub fn infer(bytes: &[u8]) -> DataType {
 }
 
 fn merge_fields(field_name: &str, possibilities: &mut AHashSet<DataType>) -> Field {
+    if possibilities.len() > 1 {
+        // Drop nulls from possibilities.
+        possibilities.remove(&DataType::Null);
+    }
     // determine data type based on possible types
     // if there are incompatible types, use DataType::Utf8
     let data_type = match possibilities.len() {
