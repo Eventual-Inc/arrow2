@@ -29,7 +29,11 @@ where
             .map(|s| s.to_string())
             .collect()
     } else {
+        // Save the csv reader position before reading headers
+        let position = reader.position().clone();
         let first_record_count = &reader.headers().await?.len();
+        reader.seek(position).await?;
+        // Restore csv reader position after getting record count.
         (0..*first_record_count)
             .map(|i| format!("column_{}", i + 1))
             .collect()
