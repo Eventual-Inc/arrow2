@@ -16,7 +16,7 @@ pub async fn infer_schema<R, F>(
     infer: &F,
 ) -> Result<(Vec<Field>, usize)>
 where
-    R: AsyncRead + AsyncSeek + Unpin + Send + Sync,
+    R: AsyncRead + AsyncSeek + Unpin + Send,
     F: Fn(&[u8]) -> DataType,
 {
     // get or create header names

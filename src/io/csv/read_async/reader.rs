@@ -13,7 +13,7 @@ pub async fn read_rows<R>(
     rows: &mut [ByteRecord],
 ) -> Result<usize>
 where
-    R: AsyncRead + Unpin + Send + Sync,
+    R: AsyncRead + Unpin + Send,
 {
     // skip first `start` rows.
     let mut row = ByteRecord::new();
