@@ -21,7 +21,11 @@ pub fn infer_schema<R: Read + Seek, F: Fn(&[u8]) -> DataType>(
     let headers: Vec<String> = if has_header {
         reader.headers()?.iter().map(|s| s.to_string()).collect()
     } else {
+        // Save the csv reader position before reading headers
+        let position = reader.position().clone();
         let first_record_count = &reader.headers()?.len();
+        reader.seek(position)?;
+        // Restore csv reader position after getting record count.
         (0..*first_record_count)
             .map(|i| format!("column_{}", i + 1))
             .collect()
