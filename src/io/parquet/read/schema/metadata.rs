@@ -85,11 +85,15 @@ fn apply_original_metadata<'a>(origin_field: &Field, inferred_field: &Field) -> 
             }
         },
 
-        // Apply timestamp timezones, but use the inferred TimeUnit since that is more consistent with the user's intended read behavior
-        (DataType::Timestamp(_, tz), DataType::Timestamp(tu, None)) => {
+        // If inferred timestamp field is timezone-aware (inferred as "+00:00" by Arrow2),
+        // then set original time zone since Parquet has no native storage for timezones
+        (
+            DataType::Timestamp(_, Some(origin_tz)),
+            DataType::Timestamp(inferred_tu, Some(inferred_tz))
+        ) if inferred_tz.eq("+00:00") => {
             Field::new(
                 inferred_field.name.clone(),
-                DataType::Timestamp(tu.clone(), tz.clone()),
+                DataType::Timestamp(inferred_tu.clone(), Some(origin_tz.clone())),
                 inferred_field.is_nullable,
             )
         }
