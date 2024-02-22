@@ -1,4 +1,6 @@
 //! This module has entry points, [`parquet_to_arrow_schema`] and the more configurable [`parquet_to_arrow_schema_with_options`].
+use std::collections::BTreeMap;
+
 use parquet2::schema::{
     types::{
         FieldInfo, GroupConvertedType, GroupLogicalType, IntegerType, ParquetType, PhysicalType,
@@ -327,11 +329,19 @@ pub(crate) fn is_nullable(field_info: &FieldInfo) -> bool {
 /// Returns `None` iff the parquet type has no associated primitive types,
 /// i.e. if it is a column-less group type.
 fn to_field(type_: &ParquetType, options: &SchemaInferenceOptions) -> Option<Field> {
-    Some(Field::new(
+    let field = Field::new(
         &type_.get_field_info().name,
         to_data_type(type_, options)?,
         is_nullable(type_.get_field_info()),
-    ))
+    );
+    let field = if let Some(field_id) = type_.get_field_info().id {
+        let mut metadata = BTreeMap::new();
+        metadata.insert("field_id".to_string(), field_id.to_string());
+        field.with_metadata(metadata)
+    } else {
+        field
+    };
+    Some(field)
 }
 
 /// Converts a parquet list to arrow list.
