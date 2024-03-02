@@ -254,7 +254,7 @@ fn non_repeated_group(
     match (logical_type, converted_type) {
         (Some(GroupLogicalType::List), _) => to_list(fields, parent_name, options),
         (None, Some(GroupConvertedType::List)) => to_list(fields, parent_name, options),
-        (Some(GroupLogicalType::Map), _) => to_list(fields, parent_name, options),
+        (Some(GroupLogicalType::Map), _) => to_map(fields, options),
         (None, Some(GroupConvertedType::Map) | Some(GroupConvertedType::MapKeyValue)) => {
             to_map(fields, options)
         }
@@ -296,11 +296,15 @@ fn to_group_type(
 ) -> Option<DataType> {
     debug_assert!(!fields.is_empty());
     if field_info.repetition == Repetition::Repeated {
-        Some(DataType::List(Box::new(Field::new(
-            &field_info.name,
-            to_struct(fields, options)?,
-            is_nullable(field_info),
-        ))))
+        if (field_info.name == "key_value" || field_info.name == "map") && fields.len() == 2 {
+            to_struct(fields, options)
+        } else {
+            Some(DataType::List(Box::new(Field::new(
+                &field_info.name,
+                to_struct(fields, options)?,
+                is_nullable(field_info),
+            ))))
+        }
     } else {
         non_repeated_group(logical_type, converted_type, fields, parent_name, options)
     }

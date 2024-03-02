@@ -132,13 +132,6 @@ fn apply_original_metadata<'a>(origin_field: &Field, inferred_field: &Field) -> 
                 inferred_field.is_nullable,
             )
         },
-        (DataType::Map(origin_subfield, keys_sorted), DataType::List(inferred_subfield)) => {
-            Field::new(
-                inferred_field.name.clone(),
-                DataType::Map(Box::new(apply_original_metadata(origin_subfield, inferred_subfield)),*keys_sorted),
-                inferred_field.is_nullable,
-            )
-        },
 
         // No matches indicate that the inferred field is consistent with the arrow_schema and doesn't require modifications
         _ => inferred_field.clone(),
