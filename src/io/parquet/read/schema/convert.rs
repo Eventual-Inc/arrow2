@@ -297,6 +297,10 @@ fn to_group_type(
     debug_assert!(!fields.is_empty());
     if field_info.repetition == Repetition::Repeated {
         if (field_info.name == "key_value" || field_info.name == "map") && fields.len() == 2 {
+            // For map types, the middle level, named key_value, is a repeated group with "key_value" as the name
+            // and two fields, "key" and "value". The "key" field is the key type and the "value" field is the value type.
+            // For backward compatibility, the "key_value" group may be named "map" instead of "key_value".
+            // https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#maps
             to_struct(fields, options)
         } else {
             Some(DataType::List(Box::new(Field::new(
