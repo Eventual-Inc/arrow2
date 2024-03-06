@@ -295,6 +295,17 @@ fn to_group_type(
     options: &SchemaInferenceOptions,
 ) -> Option<DataType> {
     debug_assert!(!fields.is_empty());
+
+    let new_field_name = match (&options.field_id_mapping, &field_info.id) {
+        (Some(field_id_mapping), Some(field_id)) => field_id_mapping
+            .get(field_id)
+            // HACK: If mapping is provided but ID is not found, we default to the existing name
+            // However this could potentially be wrong behavior and may lead to conflicting names
+            // if other fields are renamed to this field's name.
+            .unwrap_or(&field_info.name),
+        _ => &field_info.name,
+    };
+
     if field_info.repetition == Repetition::Repeated {
         if (field_info.name == "key_value" || field_info.name == "map") && fields.len() == 2 {
             // For map types, the middle level, named key_value, is a repeated group with "key_value" as the name
@@ -304,7 +315,7 @@ fn to_group_type(
             to_struct(fields, options)
         } else {
             Some(DataType::List(Box::new(Field::new(
-                &field_info.name,
+                new_field_name,
                 to_struct(fields, options)?,
                 is_nullable(field_info),
             ))))
@@ -327,8 +338,17 @@ pub(crate) fn is_nullable(field_info: &FieldInfo) -> bool {
 /// Returns `None` iff the parquet type has no associated primitive types,
 /// i.e. if it is a column-less group type.
 fn to_field(type_: &ParquetType, options: &SchemaInferenceOptions) -> Option<Field> {
+    let field_name = match (&options.field_id_mapping, &type_.get_field_info().id) {
+        (Some(field_id_mapping), Some(field_id)) => field_id_mapping
+            .get(field_id)
+            // HACK: If mapping is provided but ID is not found, we default to the existing name
+            // However this could potentially be wrong behavior and may lead to conflicting names
+            // if other fields are renamed to this field's name.
+            .unwrap_or(&type_.get_field_info().name),
+        _ => &type_.get_field_info().name,
+    };
     Some(Field::new(
-        &type_.get_field_info().name,
+        field_name,
         to_data_type(type_, options)?,
         is_nullable(type_.get_field_info()),
     ))
@@ -1116,6 +1136,7 @@ mod tests {
                 parquet_schema.fields(),
                 &Some(SchemaInferenceOptions {
                     int96_coerce_to_timeunit: tu,
+                    field_id_mapping: None,
                 }),
             );
             assert_eq!(arrow_fields, fields);

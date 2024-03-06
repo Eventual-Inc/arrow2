@@ -1,5 +1,6 @@
 //! APIs to handle Parquet <-> Arrow schemas.
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use crate::datatypes::{Schema, TimeUnit};
 use crate::error::Result;
@@ -26,12 +27,19 @@ pub struct SchemaInferenceOptions {
     /// (e.g. TimeUnit::Milliseconds) will result in loss of precision, but support a larger range of dates
     /// without overflowing when parsing the data.
     pub int96_coerce_to_timeunit: TimeUnit,
+
+    /// When inferring schemas, the name of fields should be checked against this map using the optional `field_id`
+    /// inside FieldInfo` objects.
+    ///
+    /// If not provided, no renaming will occur.
+    pub field_id_mapping: Option<BTreeMap<i32, String>>,
 }
 
 impl Default for SchemaInferenceOptions {
     fn default() -> Self {
         SchemaInferenceOptions {
             int96_coerce_to_timeunit: TimeUnit::Nanosecond,
+            field_id_mapping: None,
         }
     }
 }
