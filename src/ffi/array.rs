@@ -237,18 +237,25 @@ unsafe fn create_buffer<T: NativeType>(
 
     let offset = buffer_offset(array, data_type, index);
     let ptr: *mut T = get_buffer_ptr(array, data_type, index)?;
+    let n_elem = len - offset;
 
     // We have to check alignment.
     // This is the zero-copy path.
     if ptr.align_offset(std::mem::align_of::<T>()) == 0 {
         let bytes = Bytes::from_foreign(ptr, len, BytesAllocator::InternalArrowArray(owner));
-        Ok(Buffer::from_bytes(bytes).sliced(offset, len - offset))
+        Ok(Buffer::from_bytes(bytes).sliced(offset, n_elem))
     }
     // This is the path where alignment isn't correct.
     // We copy the data to a new vec
     else {
-        let buf = std::slice::from_raw_parts(ptr, len - offset).to_vec();
-        Ok(Buffer::from(buf))
+        let mut dst: Vec<T> = Vec::with_capacity(n_elem);
+        let src_ptr: *const u8 = std::mem::transmute(ptr);
+        let dst_ptr: *mut u8 = std::mem::transmute(dst.as_mut_ptr());
+        let bytes_to_copy = n_elem * std::mem::size_of::<T>();
+        std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bytes_to_copy);
+        // set length after copy incase of panic
+        dst.set_len(n_elem);
+        Ok(Buffer::from(dst))
     }
 }
 
